@@ -1,0 +1,94 @@
+#version 460
+#extension GL_EXT_ray_query : require
+
+struct submit_data //16 bytes
+{
+	vec3 pos;
+	float mint;
+	vec3 dir;
+	float maxt;
+};
+
+struct result_data //80 bytes
+{
+	vec3 pos;
+	float dist;
+	vec3 sh_n;
+	uint tri_index;
+	vec3 sh_s;
+	uint light_index;
+	vec3 sh_t;
+	float light_odds;
+	vec3 bary;
+	float light_pdf;
+};
+
+layout(binding = 0) uniform accelerationStructureEXT tlas;
+layout(std140, binding = 1) readonly buffer vert_data {vec4 positions[];};
+layout(std140, binding = 2) readonly buffer norm_data {vec4 normals[];};
+layout(std140, binding = 3) buffer submit {submit_data t_data[];};
+layout(std140, binding = 4) buffer result {result_data r_data[];};
+
+layout (local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	vec3 origin = t_data[index].pos;
+	vec3 direction = t_data[index].dir;
+	float tmin = t_data[index].mint;
+	float tmax = t_data[index].maxt;
+	uint flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT;
+
+	rayQueryEXT rq;
+
+	rayQueryInitializeEXT(
+		rq,tlas,flags,
+		0xFF,origin,tmin,
+		direction,tmax
+	);
+
+	while(rayQueryProceedEXT(rq));
+
+	if(rayQueryGetIntersectionTypeEXT(rq,true) == gl_RayQueryCommittedIntersectionTriangleEXT)
+	{
+		uint tri_idx = rayQueryGetIntersectionPrimitiveIndexEXT(rq,true);
+		
+		vec3 pa = positions[tri_idx*3+0].xyz;
+		vec3 pb = positions[tri_idx*3+1].xyz;
+		vec3 pc = positions[tri_idx*3+2].xyz; //technically not needed
+
+		vec3 na = normals[tri_idx*3+0].xyz;
+		vec3 nb = normals[tri_idx*3+1].xyz;
+		vec3 nc = normals[tri_idx*3+2].xyz;
+
+		vec3 s1 = pb - pa;
+
+		vec2 uv = rayQueryGetIntersectionBarycentricsEXT(rq,true);
+
+		float b1 = uv.x;
+		float b2 = uv.y;
+		float b0 = 1.0f - b1 - b2;
+		vec3 bary = {b0,b1,b2};
+
+		vec3 sh_n = normalize(na*b0+nb*b1+nc*b2);
+		vec3 sh_s = normalize(s1 - sh_n * dot(sh_n,s1));
+		vec3 sh_t = cross(sh_n,sh_s);
+
+		float dist = rayQueryGetIntersectionTEXT(rq,true);
+
+		vec3 pos = dist * direction + origin;
+		
+		r_data[index].tri_index = tri_idx;
+		r_data[index].dist = dist;
+		r_data[index].bary = bary;
+		r_data[index].sh_n = sh_n;
+		r_data[index].sh_s = sh_s;
+		r_data[index].sh_t = sh_t;
+		r_data[index].pos = pos;
+	}
+	else //no hit, mark -1
+	{
+		r_data[index].tri_index = -1;
+	}
+};

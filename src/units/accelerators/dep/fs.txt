@@ -1,0 +1,14 @@
+/bin/
+/config/
+/data/
+/docs/
+/lib/
+/mnt/
+/temp/
+/user/
+	name/
+		.bin/
+		.cache/
+		.config/
+		.docs/
+		

@@ -1,0 +1,33 @@
+#version 460
+#extension GL_EXT_ray_query : require
+layout(binding = 0, set = 0) uniform accelerationStructureEXT tlas;
+layout(binding = 1) buffer inputPos {vec3 input_position[];};
+layout(binding = 2) buffer inputDir {vec3 input_direction[];};
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	vec3 origin = input_position[index];
+	vec3 direction = input_direction[index];
+	float tmin = 0.001;
+	float tmax = 10000.0;
+	uint flags = gl_RayFlagsOpaqueEXT;
+	rayQueryEXT rq;
+	rayQueryInitializeEXT(
+		rq,tlas,gl_RayFlagsTerminateOnFirstHitEXT,
+		0xFF,origin,tmin,direction,tmax
+	);
+	while(rayQueryProceedEXT(rq)) {/*do nothing*/}
+	if(rayQueryGetIntersectionTypeEXT(rq,true) != gl_RayQueryCommittedIntersectionNoneEXT)
+	{
+		vec2 b = rayQueryGetIntersectionBarycentricsEXT(rq,true);
+		input_position[index].x = rayQueryGetIntersectionPrimitiveIndexEXT(rq,true);
+		input_position[index].y = rayQueryGetIntersectionTEXT(rq,true);
+		input_direction[index].x = b.x;
+		input_direction[index].y = b.y;
+	}
+	else
+	{
+		input_position[index] = vec3(-1.0,-1.0,-1.0);
+		input_direction[index] = vec3(-1.0,-1.0,-1.0);
+	}
+};
